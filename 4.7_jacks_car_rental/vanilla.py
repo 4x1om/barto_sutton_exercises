@@ -1,90 +1,149 @@
+import random
 from scipy.stats import poisson
 import numpy as np
 import matplotlib.pyplot as plt
 
+# POISSON_BOUNDS = [0, 0, 7, 9, 11]
+POISSON_BOUNDS = [0, 0, 9, 11, 13]
+
 GAMMA = 0.9
-THETA = 1
-
-
-def clamp_tuple(t):
-    return tuple(max(0, min(x, 20)) for x in t)
+THETA = 0.1
 
 
 def main():
-    p = poisson.pmf
-    p_table = {}
-    for q1 in range(9):
-        for q2 in range(11):
-            for t1 in range(9):
-                for t2 in range(7):
-                    prob = p(q1, 3) * p(q2, 4) * p(t1, 3) * p(t2, 2)
-                    if prob >= 2e-5:
-                        p_table[q1, q2, t1, t2] = prob
-    print(f"Precomputation complete: memoized {len(p_table)} probabilities")
-    # for key, value in sorted(p_table.items(), key=lambda item: item[1], reverse=True):
-    #     print(f"{key=}, {p_table[key]=}")
-    # print(len(p_table))
+
+    poissons = {}
+    for x in range(max(POISSON_BOUNDS)):
+        poissons[(x, 2)] = poisson.pmf(x, 2)
+        poissons[(x, 3)] = poisson.pmf(x, 3)
+        poissons[(x, 4)] = poisson.pmf(x, 4)
+
+    states = {(c1, c2) for c1 in range(21) for c2 in range(21)}
+    rewards = {}
+    p1, p2 = {}, {}
+
+    for c1, c2 in states:
+        for a in range(-5, 6):
+            m1, m2 = c1 - a, c2 + a
+            if not (0 <= m1 <= 20 and 0 <= m2 <= 20):
+                continue
+            rewards[(c1, c2), a] = -2 * abs(a)
+            for q1 in range(POISSON_BOUNDS[3]):
+                for q2 in range(POISSON_BOUNDS[4]):
+                    q_prob = poissons[q1, 3] * poissons[q2, 4]
+                    r = 10 * (min(m1, q1) + min(m2, q2))
+                    rewards[(c1, c2), a] += q_prob * r
+
+    # for c1, c2 in states:
+    #     if c1 > 15 and c2 > 15:
+    #         for a in range(-5, 6):
+    #             m1, m2 = c1 - a, c2 + a
+    #             if not (0 <= m1 <= 20 and 0 <= m2 <= 20):
+    #                 continue
+    #             print(f"rewards[({c1}, {c2}), {a}] = {rewards[(c1, c2), a]}")
+    # return
+
+    for c, c_prime in states:
+        p1[c, c_prime] = p2[c, c_prime] = 0
+
+    # m1 refers to the number of cars in the morning after moving cars over the night
+    for m1 in range(21):
+        for q1 in range(POISSON_BOUNDS[3]):
+            for t1 in range(POISSON_BOUNDS[3]):
+                prob = poissons[q1, 3] * poissons[t1, 3]
+                c1_prime = min(max(0, m1 - q1) + t1, 20)
+                p1[m1, c1_prime] += prob
+
+    for m2 in range(21):
+        for q2 in range(POISSON_BOUNDS[4]):
+            for t2 in range(POISSON_BOUNDS[2]):
+                prob = poissons[q2, 4] * poissons[t2, 2]
+                c2_prime = min(max(0, m2 - q2) + t2, 20)
+                p2[m2, c2_prime] += prob
+
+    print(f"Precomputated the dynamics of the environment")
+
+    # for c, c_prime in states:
+    #     print(p1[c, c_prime], p2[c, c_prime])
     # return
 
     v = np.zeros((21, 21))
     pi = np.zeros((21, 21), dtype=int)
-    for c1 in range(21):
-        for c2 in range(21):
-            v[c1, c2] = np.random.normal(500, 50)
-            pi[c1, c2] = 0
-            # np.random.uniform(-5, 6)
-
-    def visualize(iteration):
-        plt.imshow(pi, cmap="viridis", interpolation="nearest", origin="lower")
-        plt.colorbar()
-        plt.xlabel("Cars at the second location")
-        plt.ylabel("Cars at the first location")
-        plt.title(f"π{iteration}")
-        plt.show()
+    for c1, c2 in states:
+        v[c1, c2] = np.random.normal(0, 50)
+        # pi[c1, c2] = 0
+        # np.random.uniform(-5, 6)
 
     def eval():
         delta = float("inf")
         while delta > THETA:
             delta = 0
-            for c1 in range(21):
-                for c2 in range(21):
-                    v_old = v[c1, c2]
-                    a = pi[c1, c2]
-                    v[c1, c2] = 0
-                    for (q1, q2, t1, t2), p in p_table.items():
-                        r = 10 * (min(c1 - a, q1) + min(c2 + a, q2)) - 2 * abs(a)
-                        c1_prime = min(max(0, c1 - a - q1) + t1, 20)
-                        c2_prime = min(max(0, c2 + a - q2) + t2, 20)
-                        v[c1, c2] += p * (r + GAMMA * v[c1_prime, c2_prime])
-                    delta = max(delta, abs(v[c1, c2] - v_old))
-                    # print(f"updated v[{c1}, {c2}] from {v_old} -> {v[c1, c2]}")
+            for c1, c2 in states:
+                v_old = v[c1, c2]
+                a = pi[c1, c2]
+                m1, m2 = c1 - a, c2 + a
+                v_new = rewards[(c1, c2), a]
+                for c1_prime, c2_prime in states:
+                    prob = p1[m1, c1_prime] * p2[m2, c2_prime]
+                    v_new += GAMMA * prob * v[c1_prime, c2_prime]
+                v[c1, c2] = v_new
+                delta = max(delta, abs(v_new - v_old))
+                # if c1 > 18 and c2 > 18:
+                # print(f"updated v[{c1}, {c2}] from {v_old} -> {v[c1, c2]}")
 
     def improve():
         is_stable = True
-        for c1 in range(21):
-            for c2 in range(21):
-                old_action = pi[c1, c2]
-                action_values = []
-                for a in range(max(-5, -c2), min(c1, 5) + 1):
-                    action_value = 0
-                    for (q1, q2, t1, t2), p in p_table.items():
-                        r = 10 * (min(c1 - a, q1) + min(c2 + a, q2)) - 2 * abs(a)
-                        c1_prime = min(max(0, c1 - a - q1) + t1, 20)
-                        c2_prime = min(max(0, c2 + a - q2) + t2, 20)
-                        action_value += p * (r + GAMMA * v[c1_prime, c2_prime])
-                    action_values.append((a, action_value))
-                pi[c1, c2] = max(action_values, key=lambda t: t[1])[0]
-                if old_action != pi[c1, c2]:
-                    is_stable = False
+        for c1, c2 in states:
+            old_action = pi[c1, c2]
+            best_value = -float("inf")
+            for a in range(-5, 6):
+                m1, m2 = c1 - a, c2 + a
+                if not (0 <= m1 <= 20 and 0 <= m2 <= 20):
+                    continue
+                action_value = rewards[(c1, c2), a]
+                for c1_prime, c2_prime in states:
+                    prob = p1[m1, c1_prime] * p2[m2, c2_prime]
+                    action_value += GAMMA * prob * v[c1_prime, c2_prime]
+                if action_value > best_value:
+                    pi[c1, c2] = a
+                    best_value = action_value
+            if old_action != pi[c1, c2]:
+                is_stable = False
         return is_stable
 
+    def visualize(iteration):
+        fig = plt.figure(figsize=(14, 6))
+
+        ax1 = fig.add_subplot(1, 2, 1)
+        ax2 = fig.add_subplot(1, 2, 2, projection="3d")
+
+        im = ax1.imshow(pi, cmap="viridis", interpolation="nearest", origin="lower")
+        fig.colorbar(im, ax=ax1)
+        ax1.set_xlabel("Cars at the second location")
+        ax1.set_ylabel("Cars at the first location")
+        ax1.set_title(f"π_{iteration}")
+
+        X = np.arange(0, 21)
+        Y = np.arange(0, 21)
+        X, Y = np.meshgrid(X, Y)
+        surf = ax2.plot_surface(X, Y, v, cmap="viridis")
+        # fig.colorbar(surf, ax=ax2, shrink=0.5, aspect=5)
+        ax2.set_xlabel("Cars at the second location")
+        ax2.set_ylabel("Cars at the first location")
+        ax2.set_title(f"v_π_{iteration}")
+
+        plt.tight_layout()
+        plt.show()
+
     iteration = 0
+    visualize(0)
     is_stable = False
     while not is_stable:
         eval()
         is_stable = improve()
         iteration += 1
         visualize(iteration)
+    print(f"π_{iteration} is the optimal policy.")
 
 
 if __name__ == "__main__":
