@@ -23,25 +23,18 @@ def main():
     p1, p2 = {}, {}
 
     for c1, c2 in states:
-        for a in range(-5, 6):
+        for a in range(-5, 7):
             m1, m2 = c1 - a, c2 + a
             if not (0 <= m1 <= 20 and 0 <= m2 <= 20):
                 continue
-            rewards[(c1, c2), a] = -2 * abs(a)
+            rewards[(c1, c2), a] = 2 - 2 * a if a > 0 else 2 * a
+            rewards[(c1, c2), a] -= 4 * (m1 > 10)
+            rewards[(c1, c2), a] -= 4 * (m2 > 10)
             for q1 in range(POISSON_BOUNDS[3]):
                 for q2 in range(POISSON_BOUNDS[4]):
                     q_prob = poissons[q1, 3] * poissons[q2, 4]
                     r = 10 * (min(m1, q1) + min(m2, q2))
                     rewards[(c1, c2), a] += q_prob * r
-
-    # for c1, c2 in states:
-    #     if c1 > 15 and c2 > 15:
-    #         for a in range(-5, 6):
-    #             m1, m2 = c1 - a, c2 + a
-    #             if not (0 <= m1 <= 20 and 0 <= m2 <= 20):
-    #                 continue
-    #             print(f"rewards[({c1}, {c2}), {a}] = {rewards[(c1, c2), a]}")
-    # return
 
     for c, c_prime in states:
         p1[c, c_prime] = p2[c, c_prime] = 0
@@ -63,17 +56,8 @@ def main():
 
     print(f"Precomputated the dynamics of the environment")
 
-    # for c, c_prime in states:
-    #     print(p1[c, c_prime], p2[c, c_prime])
-    # return
-
     v = np.zeros((21, 21))
     pi = np.zeros((21, 21), dtype=int)
-    for c1, c2 in states:
-        pass
-        # v[c1, c2] = np.random.normal(0, 50)
-        # pi[c1, c2] = 0
-        # np.random.uniform(-5, 6)
 
     def eval():
         delta = float("inf")
@@ -109,7 +93,7 @@ def main():
                 is_stable = False
         return is_stable
 
-    def visualize(iteration):
+    def visualize(iteration, save=False):
         fig = plt.figure(figsize=(14, 6))
 
         ax1 = fig.add_subplot(1, 2, 1)
@@ -131,7 +115,10 @@ def main():
         ax2.set_title(f"v_π_{iteration}")
 
         plt.tight_layout()
-        plt.show()
+        if save:
+            plt.savefig("optimal_policy.png", format="png")
+        else:
+            plt.show()
 
     iteration = 0
     visualize(0)
@@ -140,7 +127,7 @@ def main():
         eval()
         is_stable = improve()
         iteration += 1
-        visualize(iteration)
+        visualize(iteration, is_stable)
     print(f"π_{iteration} is the optimal policy.")
 
 
